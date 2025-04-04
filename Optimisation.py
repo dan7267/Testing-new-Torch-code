@@ -79,8 +79,10 @@ def simulate_data(sigma, a, b, model_type, paradigm, n_jobs):
     simulation = True
     j, ind, reset_after, _ = paradigm_setting(paradigm, cond1, cond2)
     results = produce_statistics_one_simulation(paradigm, model_type, sigma, a, b, n_jobs, n_simulations)
-    print("results")
-    print(results)
+    # print("results")
+    # print(results)
+    # print("results.grad_fn")
+    # print(results.grad_fn.next_functions)
     return results
 
 def empirical_data(paradigm):
@@ -99,9 +101,10 @@ example_empiricaled_data = torch.tensor([-0.3657197926719654, -0.033748693165874
 def objective_function(simulated_data, empiricaled_data, weights):
     # print(simulated_data)
     # print(empiricaled_data)
-    print(simulated_data)
-    print(empiricaled_data)
+    # print(simulated_data)
+    # print(empiricaled_data)
     objective=torch.sum(weights * torch.abs(simulated_data - empiricaled_data))
+    # print(objective.grad_fn)
     return objective
 
 # print(objective_function(example_simulated_data, example_empiricaled_data, weights))
@@ -145,8 +148,8 @@ def optimise_model(params, n_steps, lr, model_type, paradigm, empirical_data, we
     for step in range(n_steps):
         optimiser.zero_grad()
         simulated_data = simulate_data(params[2], params[0], params[1], model_type, paradigm, n_jobs)
-        print("Simulated_data")
-        print(simulated_data)
+        # print("Simulated_data")
+        # print(simulated_data)
         # print(simulated_data.grad_fn)
         # print(simulated_data.grad_fn.next_functions)
         # print(simulated_data.grad_fn.next_functions[0][0].next_functions)
