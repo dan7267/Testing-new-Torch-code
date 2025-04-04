@@ -37,12 +37,12 @@ def produce_basic_statistics(y, plag):
     # print(wtc1.shape)
 
 
-    n = y.shape[1]
-    v = y.shape[2]
-    cond1_p1 = y[:,:n // 4, :v]
-    cond1_p2 = y[:, n // 4:n // 2, :v]
-    cond2_p1 = y[:, n // 2:3 * n // 4, :v]
-    cond2_p2 = y[:, 3 * n // 4:, :v]
+    # n = y.shape[1]
+    # v = y.shape[2]
+    # cond1_p1 = y[:,:n // 4, :v]
+    # cond1_p2 = y[:, n // 4:n // 2, :v]
+    # cond2_p1 = y[:, n // 2:3 * n // 4, :v]
+    # cond2_p2 = y[:, 3 * n // 4:, :v]
     
     """This is the previous code. I now want to vectorise this by setting 
         cond1_p1_corr to calculate for all sub at once. The calculate_AM
