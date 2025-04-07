@@ -11,7 +11,7 @@ def produce_basic_statistics(y, plag):
     # avgAmp2r1 = torch.zeros((n_subs, 1), dtype=torch.float32, requires_grad=True)
     # avgAmp1r2 = torch.zeros((n_subs, 1), dtype=torch.float32, requires_grad=True)
     # avgAmp2r2 = torch.zeros((n_subs, 1), dtype=torch.float32, requires_grad=True)
-    wtc1 = torch.zeros((n_subs, 1), dtype=torch.float32, requires_grad=True)
+    # wtc1 = torch.zeros((n_subs, 1), dtype=torch.float32, requires_grad=True)
     # wtc2 = torch.zeros((n_subs, 1), dtype=torch.float32, requires_grad=True)
     # # BC between class correlations
     # btc1 = torch.zeros((n_subs, 1), dtype=torch.float32, requires_grad=True)
@@ -58,15 +58,30 @@ def produce_basic_statistics(y, plag):
     # cond1_p2_corr = (torch.corrcoef(cond1_p2.T)+torch.corrcoef(cond2_p2.T)) / 2
     # wtc2[sub, :] = torch.mean(torch.mean(cond1_p2_corr, axis=0))
     WC = calculate_WC(y)
+    print("WC")
+    print(WC)
     BC = calculate_BC(y)
     CP = calculate_CP(WC, BC)
     AMS = calculate_AMS(y)
     AMA = calculate_AMA(y)
 
-    print("WC.grad_fn")
-    print(WC.grad_fn)
-    print(WC)
-    
+    # print("WC.grad_fn")
+    # print(WC.grad_fn)
+    # print(WC)
+
+    # def calculate_WC(y):
+    #     n_subs = len(y) #y is a length 18 dictionary with arrays 32 x 200
+    #     wtc1 = torch.zeros((n_subs, 1), dtype=torch.float32, requires_grad=True)
+    #     for sub in range(n_subs):
+    #         pattern = y[sub]
+    #         v = pattern.shape[1]
+    #         n = pattern.shape[0]
+    #         cond1_p1 = pattern[:n // 4, :v]
+    #         cond2_p1 = pattern[n // 2:3 * n // 4, :v]
+    #         cond1_p1_corr = (torch.corrcoef(cond1_p1.T) + torch.corrcoef(cond2_p1.T)) / 2
+    #         wtc1[sub, :] = torch.mean(torch.mean(cond1_p1_corr, axis=0))
+    #     return wtc1
+
 
     # # print(y_tensor.shape)
     # for sub in range(n_subs):
@@ -247,9 +262,53 @@ def calculate_AM(y):
     return torch.column_stack((avgR1, avgR2))
 
 def calculate_WC(y):
-    subs = y.shape[0]
-    wtc1 = torch.rand(subs, 1, requires_grad=True)
-    wtc2 = torch.rand(subs, 1, requires_grad=True)
+    n_subs = y.shape[0]
+    n = y.shape[1]
+    v = y.shape[2]
+    cond1_p1 = y[:,:n // 4, :v]
+    cond2_p1 = y[:, n // 2:3 * n // 4, :v]
+
+    cond1_p1_centered = cond1_p1 - cond1_p1.mean(dim=1, keepdim=True)
+    cond2_p1_centered = cond2_p1 - cond2_p1.mean(dim=1, keepdim=True)
+
+    def batched_corr(x):
+        #x = [n_subs, n_timepoints, n_voxels]
+        # x_t = x.transpose(1,2)
+        x_t = x.transpose(1,2)
+        cov = torch.matmul(x_t, x_t.transpose(1,2)) / (x.shape[1] -1)
+        std = x_t.std(dim=2)
+        return cov / std[:,:,None] * std[:, None, :] + 1e-6
+        
+        # cov = torch.einsum('snt,smt->snm', x, x) / (x.shape[1] - 1) # 18x8x8
+        # print("cov.shape")
+        # print(cov.shape)
+        # std = x.std(dim=1, keepdim=False) # 18x200
+        # print("std.shape")
+        # print(std.shape)
+        # print("std[:, None, :].shape")
+        # print(std[:, None, :].shape)
+        # corr = cov / (std[:, None, :] * std[:, :, None] + 1e-6)
+        # return corr
+    corr1_p1 = batched_corr(cond1_p1_centered)
+    corr2_p1 = batched_corr(cond2_p1_centered)
+    avgcorr1 = (corr1_p1 + corr2_p1) / 2
+    wtc1 = avgcorr1.mean(dim=(1,2)).unsqueeze(1)
+    print("wtc1.shape")
+    print(wtc1.shape)
+
+    cond1_p2 = y[:, n // 4:n // 2, :v]
+    cond2_p2 = y[:, 3 * n // 4:, :v]
+
+    cond1_p2_centered = cond1_p2 - cond1_p2.mean(dim=1, keepdim=True)
+    cond2_p2_centered = cond2_p2 - cond2_p2.mean(dim=1, keepdim=True)
+
+    corr1_p2 = batched_corr(cond1_p2_centered)
+    corr2_p2 = batched_corr(cond2_p2_centered)
+    avgcorr2 = (corr1_p2 + corr2_p2) / 2
+    wtc2 = avgcorr2.mean(dim=(1, 2)).unsqueeze(1)
+
+
+
     return torch.column_stack((wtc1, wtc2))
 
 def calculate_BC(y):

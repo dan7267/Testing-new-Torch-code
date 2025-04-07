@@ -87,7 +87,9 @@ def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_af
         d = torch.minimum(torch.abs(d), X-torch.abs(d))
 
     scaling_factors = {
-        2: torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a))),  # Local Scaling
+        # 2: torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a))),  # Local Scaling
+        # 2: a + d / b * (1-a),
+        2: smooth_min(torch.ones_like(d), (a+smooth_abs(d/b)*(1-a))),
         3: torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a))),  # Remote Scaling
         5: torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a))),  # Local Sharpening
         6: torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a))),  # Remote Sharpening
@@ -104,7 +106,8 @@ def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_af
         e = a * torch.ones((nt, v, N), dtype=torch.float32, requires_grad=True)
     elif model_type in scaling_factors:
         e = scaling_factors[model_type]
-
+    print("e.grad_fn")
+    print(e.grad_fn)
     num_blocks = nt // reset_after
     e_reshaped = e.reshape(num_blocks, reset_after, v, N)
     e_modified = torch.ones_like(e_reshaped)
@@ -162,7 +165,7 @@ def non_circular_g(x, sigma, u):
 
 def circular_g(x, u, sigma):
     # x = np.atleast_1d(x)
-    c = 1 / (2*torch.pi*sp.special.i0(sigma))
+    c = 1 / (2*torch.pi*torch.special.i0(sigma))
     return c * torch.exp(sigma * torch.cos(x-u))
 
 
@@ -182,4 +185,9 @@ def circular_g(x, u, sigma):
 # p = simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_after, paradigm, N)['pattern']
 
 # print(p)
-    
+
+def smooth_abs(x, eps=1e-6):
+    return torch.sqrt(x**2 + eps)
+
+def smooth_min(a, b, beta=10.0):
+    return -torch.log(torch.exp(-beta * a) + torch.exp(-beta * b)) / beta
