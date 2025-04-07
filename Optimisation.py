@@ -6,6 +6,9 @@ from simulate_adaptation import simulate_adaptation
 from joblib import Parallel, delayed
 from repeffects_fig4_sims_alt import produce_confidence_interval
 from ExperimentalData import create_pattern
+from graphviz import Digraph
+import torchviz
+from IPython.display import display
 
 faceData = 'face_data.mat' #We need to change the data
 gratingData = 'grating_data.mat' #We need to change the data
@@ -14,6 +17,8 @@ def simulate_subject(sub, v, X, j, cond1, cond2, a, b, sigma, model_type, reset_
     """Produces the voxel pattern for one simulation for one parameter combination of one paradigm"""
 
     out = simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_after, paradigm, N)
+    print("out.grad_fn")
+    print(out.grad_fn)
     pattern = (out.T + torch.randn(v, len(j), requires_grad=True) * noise).T
     v = pattern.shape[1]
     if paradigm == 'face':
@@ -23,7 +28,8 @@ def simulate_subject(sub, v, X, j, cond1, cond2, a, b, sigma, model_type, reset_
 
 def produce_statistics_one_simulation(paradigm, model_type, sigma, a, b, n_jobs, n_simulations):
     """Produces the slope of each data feature for one parameter combination for one simulation"""
-    v, X = 200, torch.pi
+    # v, X = 200, torch.pi
+    v, X = 5, torch.pi
     cond1, cond2 = X/4, 3*X/4
     sub_num = 18
     noise = 0.03
@@ -44,6 +50,9 @@ def produce_statistics_one_simulation(paradigm, model_type, sigma, a, b, n_jobs,
         [simulate_subject(sub, v, X, j, cond1, cond2, a, b, sigma, model_type, reset_after, paradigm, N, noise, ind)
         for sub in range(sub_num)
         ])
+    print("results.grad_fn")
+    print(results.grad_fn)
+    print(results)
     return produce_confidence_interval(results, 1)
 
 def process_empirical_subject(sub, paradigm):
@@ -79,6 +88,9 @@ def simulate_data(sigma, a, b, model_type, paradigm, n_jobs):
     simulation = True
     j, ind, reset_after, _ = paradigm_setting(paradigm, cond1, cond2)
     results = produce_statistics_one_simulation(paradigm, model_type, sigma, a, b, n_jobs, n_simulations)
+    print("results.grad_fn")
+    print(results.grad_fn)
+    print(results)
     # print("results")
     # print(results)
     # print("results.grad_fn")
@@ -142,34 +154,44 @@ n_jobs = 1
 example_empiricaled_data = torch.tensor([-0.3657197926719654, -0.0337486931658741, -0.020352066375412297, -0.013396626790461809, 0.04041971183397424, 0.1837277393276265], requires_grad=True)
 
 
-def optimise_model(params, n_steps, lr, model_type, paradigm, empirical_data, weights):
-    optimiser = torch.optim.Adam([params], lr=lr)
+def optimise_model(a_param, b_param, sigma_param, n_steps, lr, model_type, paradigm, empirical_data, weights):
+    optimiser = torch.optim.Adam([a_param, b_param, sigma_param], lr=lr)
 
     for step in range(n_steps):
         optimiser.zero_grad()
-        simulated_data = simulate_data(params[2], params[0], params[1], model_type, paradigm, n_jobs)
-        # print("Simulated_data")
-        # print(simulated_data)
-        # print(simulated_data.grad_fn)
-        # print(simulated_data.grad_fn.next_functions)
-        # print(simulated_data.grad_fn.next_functions[0][0].next_functions)
-        # print(simulated_data.grad_fn.next_functions[0][0].next_functions[0][0].next_functions)
-        # print(simulated_data.grad_fn.next_functions[0][0].next_functions[0][0].next_functions[0])
+        simulated_data = simulate_data(sigma_param, a_param, b_param, model_type, paradigm, n_jobs)
+        print("simulated_data.grad_fn")
+        print(simulated_data.grad_fn)
+        print(simulated_data)
         loss = objective_function(simulated_data, empirical_data, weights)
+        print("loss.grad_fn")
+        print(loss.grad_fn)
+        print(loss)
         # loss.backward()
         loss.backward(retain_graph=True)
-        print(f"Gradients: {[p.grad for p in params]}")
+        dot =torchviz.make_dot(loss, params = {"a": a_param, "b": b_param, "sigma": sigma_param, "loss":loss})
+        dot.render("computation_graph", format="png")
+        print(step)
+        print(f"  a: {a_param.item():.4f}, grad: {a_param.grad.item():.6f}")
+        print(f"  b: {b_param.item():.4f}, grad: {b_param.grad.item():.6f}")
+        print(f"  sigma: {sigma_param.item():.4f}, grad: {sigma_param.grad.item():.6f}")
+        print(f"  Loss: {loss.item():.6f}")
         optimiser.step()
-        if step % 1 == 0:
-            print(f"Step {step}, Loss: {loss.item()}, Params: {[p.item() for p in params]}")
+        print(f"  Updated Parameters:")
+        print(f"    a:     {a_param.item(): .4f}")
+        print(f"    b:     {b_param.item(): .4f}")
+        print(f"    sigma: {sigma_param.item(): .4f}")
 
 a_init = 0.1
 b_init = 0.1
 sigma_init = 0.1
 
 params = torch.nn.Parameter(torch.tensor([a_init, b_init, sigma_init], dtype=torch.float32, requires_grad=True))
+a_param = torch.tensor(a_init, dtype=torch.float32, requires_grad=True)
+b_param = torch.tensor(b_init, dtype=torch.float32, requires_grad=True)
+sigma_param = torch.tensor(sigma_init, dtype=torch.float32, requires_grad=True)
 # params = torch.nn.Parameter(params.detach().numpy())
 # print(params)
 weights = 1/6 *torch.ones(6, requires_grad=True)
 
-optimise_model(params=params, n_steps=3, lr=0.01, model_type=1, paradigm='face', empirical_data=example_empiricaled_data, weights=weights)
+optimise_model(a_param=a_param, b_param=b_param, sigma_param=sigma_param, n_steps=6, lr=0.01, model_type=2, paradigm='face', empirical_data=example_empiricaled_data, weights=weights)

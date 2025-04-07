@@ -62,6 +62,10 @@ def produce_basic_statistics(y, plag):
     CP = calculate_CP(WC, BC)
     AMS = calculate_AMS(y)
     AMA = calculate_AMA(y)
+
+    print("WC.grad_fn")
+    print(WC.grad_fn)
+    print(WC)
     
 
     # # print(y_tensor.shape)
@@ -294,7 +298,9 @@ def produce_confidence_interval(y, pflag):
 
     slopes = torch.stack([torch.mean(compute_slope(data)) for data in [AM, WC, BC, CP, AMS, AMA]
                           ])
-    # print(slopes.grad_fn)
+    print("slopes.grad_fn")
+    print(slopes.grad_fn)
+    print(slopes)
     return slopes
 
 

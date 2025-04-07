@@ -129,6 +129,9 @@ def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_af
         temp = transformed_array[..., None] * init[None, :, :, :]
     rep = temp
     rep[::reset_after, :, :, :] = init
+    print("rep.grad_fn")
+    print(rep.grad_fn)
+    # print(rep)
 
 
     cond_indices = (int(cond1 / dt - 1), int(cond2 / dt - 1))
@@ -155,7 +158,7 @@ def gaussian(x, u, sigma, paradigm):
         return circular_g(2*x, 2*u, 1/sigma)
     
 def non_circular_g(x, sigma, u):
-    return torch.exp(-((x-u)**2)/(2*sigma**2))
+    return torch.exp(-((x-u)**2)/(2*sigma*sigma))
 
 def circular_g(x, u, sigma):
     # x = np.atleast_1d(x)
