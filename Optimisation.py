@@ -196,4 +196,5 @@ log_sigma_param = torch.tensor(-2.3026, dtype=torch.float32, requires_grad=True)
 # print(params)
 weights = 1/6 *torch.ones(6, requires_grad=True)
 
-optimise_model(a_param=a_param, b_param=b_param, log_sigma_param=log_sigma_param, n_steps=6, lr=0.01, model_type=2, paradigm='face', empirical_data=example_empiricaled_data, weights=weights)
+optimise_model(a_param=a_param, b_param=b_param, log_sigma_param=log_sigma_param, n_steps=6, lr=0.01, model_type=3, paradigm='face', empirical_data=example_empiricaled_data, weights=weights)
+print()

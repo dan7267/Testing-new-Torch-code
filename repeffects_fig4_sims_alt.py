@@ -61,9 +61,15 @@ def produce_basic_statistics(y, plag):
     print("WC")
     print(WC)
     BC = calculate_BC(y)
+    print("BC")
+    print(BC)
     CP = calculate_CP(WC, BC)
+    print("CP")
+    print(CP)
     AMS = calculate_AMS(y)
     AMA = calculate_AMA(y)
+    print("AMA")
+    print(AMA)
 
     # print("WC.grad_fn")
     # print(WC.grad_fn)
@@ -233,10 +239,91 @@ def produce_basic_statistics(y, plag):
     #         abs_ad_trend[sub, i] = torch.mean(AS[percInds == i], axis=0)
 
 
+    # def calculate_AMA(y):
+    #     v = y.shape[2]
+    #     n = y.shape[1] #y has shape 18 x 32 x 200
+    #     n_subs = y.shape[0]
+    #     sc_trend = torch.zeros((n_subs, nBins), dtype=torch.float32, requires_grad=True)
 
+    #     for sub in range(n_subs):
+
+    #         cond1_p1 = y[:n // 4, :v]
+    #         cond1_p2 = y[n // 4:n // 2, :v]
+    #         cond2_p1 = y[n // 2:3 * n // 4, :v]
+    #         cond2_p2 = y[3 * n // 4:, :v]
+    #         cond1r1 = torch.mean(cond1_p1, axis=1)
+    #         cond2r1 = torch.mean(cond2_p1, axis=1)
+    #         cond1r2 = torch.mean(cond1_p2, axis=1)
+    #         cond2r2 = torch.mean(cond2_p2, axis=1)
+    #         sAmp1r = torch.sort(torch.mean(torch.hstack([cond1_p1.T, cond1_p2.T]), axis=1))
+    #         ind1 = torch.argsort(torch.mean(torch.hstack([cond1_p1.T, cond1_p2.T]), axis=1))
+
+    #         sAmp2r = torch.sort(torch.mean(torch.hstack([cond2_p1.T, cond2_p2.T]), axis=1))
+    #         ind2 = torch.argsort(torch.mean(torch.hstack([cond2_p1.T, cond2_p2.T]), axis=1))
+
+    #         # Reorder based on indices
+    #         sAmp1r1 = cond1r1[ind1]
+    #         sAmp2r1 = cond2r1[ind2]
+    #         sAmp1r2 = cond1r2[ind1]
+    #         sAmp2r2 = cond2r2[ind2]
+
+    #         # Compute slope
+    #         sAmp = ((sAmp1r1 - sAmp1r2) + (sAmp2r1 - sAmp2r2)) / 2
+
+    #         AA = sAmp
+    #         percInds = (torch.round((torch.arange(1, len(AA) + 1) * (nBins - 1)) / len(AA)) / (nBins - 1)) * (nBins - 1)
+        
+    #         for i in range(nBins):
+    #             sc_trend[sub, i] = torch.mean(AA[percInds == i], axis=0)
+
+    #     AMA = sc_trend
+
+    #     return AMA
     
 
     return AM, CP, WC, BC, AMA, AMS
+
+def calculate_AMA(y):
+    nBins = 6
+    n_subs, n, v = y.shape
+    cond1_p1 = y[:, :n // 4, :v]
+    cond1_p2 = y[:, n // 4:n // 2, :v]
+    cond2_p1 = y[:, n // 2:3 * n // 4, :v]
+    cond2_p2 = y[:, 3 * n // 4:, :v]
+
+    cond1r1 = torch.mean(cond1_p1, axis=1)
+    cond2r1 = torch.mean(cond2_p1, axis=1)
+    cond1r2 = torch.mean(cond1_p2, axis=1)
+    cond2r2 = torch.mean(cond2_p2, axis=1)
+
+    mean_vox_cond1 = torch.cat([cond1_p1, cond1_p2], dim=1).mean(dim=1) #Not transposing but also not changing dimensions from original.
+    mean_vox_cond2 = torch.cat([cond2_p1, cond2_p2], dim=1).mean(dim=1)
+    sAmp1r, ind1 = torch.sort(mean_vox_cond1, dim=1)
+    sAmp2r, ind2 = torch.sort(mean_vox_cond2, dim=1)
+
+    # Sort the voxel-averaged vectors using gather
+    sAmp1r1 = torch.gather(cond1r1, 1, ind1)
+    sAmp1r2 = torch.gather(cond1r2, 1, ind1)
+    sAmp2r1 = torch.gather(cond2r1, 1, ind2)
+    sAmp2r2 = torch.gather(cond2r2, 1, ind2)
+
+    # Compute slope across conditions, then average
+    sAmp = ((sAmp1r1 - sAmp1r2) + (sAmp2r1 - sAmp2r2)) / 2  # (n_subs, v)
+    # Compute bin indices (shared across subjects)
+    ranks = torch.arange(1, v + 1, device=y.device).float()
+    percInds = ((ranks * (nBins - 1)) / v).round().long()  # (v,)
+    # percInds = (torch.round((torch.arange(1, v + 1) * (nBins - 1)) / v) / (nBins - 1)) * (nBins - 1)
+    AMA = torch.zeros((n_subs, nBins), dtype=torch.float32, device=y.device)
+
+    one_hot = torch.nn.functional.one_hot(percInds, num_classes=nBins).float() #(v, nBins)
+    bin_mask = one_hot.T.unsqueeze(0) #(1, nBins, v)
+    sAmp_exp = sAmp.unsqueeze(1) #(n_subs, 1, v)
+
+    #Multiply and sum across voxels
+    numerators = (sAmp_exp * bin_mask).sum(dim=2) #(n_subs, nBins)
+    denominators = bin_mask.sum(dim=2).clamp(min=1) #(1, nBins)
+    AMA = numerators / denominators
+    return AMA
 
 def calculate_AM(y):
     v = y.shape[2]
@@ -279,16 +366,6 @@ def calculate_WC(y):
         std = x_t.std(dim=2)
         return cov / std[:,:,None] * std[:, None, :] + 1e-6
         
-        # cov = torch.einsum('snt,smt->snm', x, x) / (x.shape[1] - 1) # 18x8x8
-        # print("cov.shape")
-        # print(cov.shape)
-        # std = x.std(dim=1, keepdim=False) # 18x200
-        # print("std.shape")
-        # print(std.shape)
-        # print("std[:, None, :].shape")
-        # print(std[:, None, :].shape)
-        # corr = cov / (std[:, None, :] * std[:, :, None] + 1e-6)
-        # return corr
     corr1_p1 = batched_corr(cond1_p1_centered)
     corr2_p1 = batched_corr(cond2_p1_centered)
     avgcorr1 = (corr1_p1 + corr2_p1) / 2
@@ -312,20 +389,44 @@ def calculate_WC(y):
     return torch.column_stack((wtc1, wtc2))
 
 def calculate_BC(y):
-    subs = y.shape[0]
-    btc1 = torch.rand(subs, 1, requires_grad=True)
-    btc2 = torch.rand(subs, 1, requires_grad=True)
+    n_subs, n, v = y.shape
+
+    cond1_p1 = y[:, :n // 4, :]
+    cond2_p1 = y[:, n // 2:3 * n//4, :]
+    c1_p1T = cond1_p1.transpose(1,2) #(n_subs, v, n//4)
+    c2_p1T = cond2_p1.transpose(1,2) #(n_subs, v, n//4)
+    concat =torch.cat([c1_p1T, c2_p1T], dim=2)
+    concat_mean = concat.mean(dim=2, keepdim=True)
+    concat_centered = concat - concat_mean
+    cov = torch.matmul(concat_centered, concat_centered.transpose(1,2)) / (concat.shape[2] - 1)
+    std = concat_centered.std(dim=2, keepdim=True)
+    std_matrix = torch.matmul(std, std.transpose(1,2))
+    corr = cov / (std_matrix + 1e-8) #n_subs, v, v
+    half = c1_p1T.shape[2]
+    ppx = corr[:, :, half:]
+    btc1 = ppx.mean(dim=(1,2)).unsqueeze(1)
+
+    cond1_p2 = y[:, n // 4:n // 2, :v]
+    cond2_p2 = y[:, 3 * n // 4:, :v]
+    c1_p2T = cond2_p1.transpose(1,2)
+    c2_p2T = cond2_p2.transpose(1,2)
+    concat =torch.cat([c1_p2T, c2_p2T], dim=2)
+    concat_mean = concat.mean(dim=2, keepdim=True)
+    concat_centered = concat - concat_mean
+    cov = torch.matmul(concat_centered, concat_centered.transpose(1,2)) / (concat.shape[2] - 1)
+    std = concat_centered.std(dim=2, keepdim=True)
+    std_matrix = torch.matmul(std, std.transpose(1,2))
+    corr = cov / (std_matrix + 1e-8) #n_subs, v, v
+    half = c1_p2T.shape[2]
+    ppx = corr[:, :, half:]
+    btc2 = ppx.mean(dim=(1,2)).unsqueeze(1)
+    
     return torch.column_stack((btc1, btc2))
 
 def calculate_CP(WC, BC):
     return WC - BC
 
 def calculate_AMS(y):
-    nBins = 6
-    subs = y.shape[0]
-    return torch.rand(subs, nBins, requires_grad=True)
-
-def calculate_AMA(y):
     nBins = 6
     subs = y.shape[0]
     return torch.rand(subs, nBins, requires_grad=True)
