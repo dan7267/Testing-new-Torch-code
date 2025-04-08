@@ -283,6 +283,137 @@ def produce_basic_statistics(y, plag):
 
     return AM, CP, WC, BC, AMA, AMS
 
+def calculate_AMS(y):
+    n_subs, n, v = y.shape
+    nBins = 6
+    # Split into condition blocks
+    cond1_p1 = y[:, :n // 4, :]            # (n_subs, n//4, v)
+    cond1_p2 = y[:, n // 4:n // 2, :]
+    cond2_p1 = y[:, n // 2:3 * n // 4, :]
+    cond2_p2 = y[:, 3 * n // 4:, :]
+    # Combine for t-tests: shape (n_subs, n//2, v)
+    cond1_combined = torch.cat([cond1_p1, cond1_p2], dim=1)
+    cond2_combined = torch.cat([cond2_p1, cond2_p2], dim=1)
+
+    # Batched t-test function
+    def batched_ttest(c1, c2):
+        mean1 = c1.mean(dim=1)
+        mean2 = c2.mean(dim=1)
+        std1 = c1.std(dim=1, unbiased=False)
+        std2 = c2.std(dim=1, unbiased=False)
+        n1 = c1.shape[1]
+        n2 = c2.shape[1]
+        denom = torch.sqrt((std1 ** 2) / n1 + (std2 ** 2) / n2)
+        t_stat = (mean1 - mean2) / denom.clamp(min=1e-6)  # avoid div by zero
+        return t_stat  # (n_subs, v)
+    
+    # Get t-values per subject per voxel
+    tval1 = batched_ttest(cond1_combined, cond2_combined)
+    tval2 = batched_ttest(cond2_combined, cond1_combined)
+
+    # Sort indices based on abs t-values (for each subject)
+    tval_sorted_ind1 = torch.argsort(torch.abs(tval1), dim=1)
+    tval_sorted_ind2 = torch.argsort(torch.abs(tval2), dim=1)
+    
+    # Compute means across trials (per condition block)
+    c1_init = cond1_p1.mean(dim=1)  # (n_subs, v)
+    c1_rep = cond1_p2.mean(dim=1)
+    c2_init = cond2_p1.mean(dim=1)
+    c2_rep = cond2_p2.mean(dim=1)
+
+    # Reorder based on t-sorted indices
+    gather1 = lambda data, idx: torch.gather(data, 1, idx)
+    c1_sinit = gather1(c1_init, tval_sorted_ind1)
+    c1_srep = gather1(c1_rep, tval_sorted_ind1)
+    c2_sinit = gather1(c2_init, tval_sorted_ind2)
+    c2_srep = gather1(c2_rep, tval_sorted_ind2)
+
+    # Compute trends
+    abs_init_trend = (c1_sinit + c2_sinit) / 2
+    abs_rep_trend = (c1_srep + c2_srep) / 2
+    AS = abs_init_trend - abs_rep_trend  # (n_subs, v)
+
+    # Bin index logic (same across all subjects)
+    ranks = torch.arange(1, v + 1, device=y.device).float()
+    perc_inds = ((ranks * (nBins - 1)) / v).round().long()  # (v,)
+    bin_mask = torch.nn.functional.one_hot(perc_inds, num_classes=nBins).T.float()  # (nBins, v)
+
+    # Expand for all subjects
+    bin_mask = bin_mask.unsqueeze(0)  # (1, nBins, v)
+    AS_exp = AS.unsqueeze(1)          # (n_subs, 1, v)
+
+    # Bin and average
+    numerators = (AS_exp * bin_mask).sum(dim=2)       # (n_subs, nBins)
+    denominators = bin_mask.sum(dim=2).clamp(min=1)   # (1, nBins)
+    AMS = numerators / denominators                   # (n_subs, nBins)
+
+    return AMS
+
+# def calculate_AMS(y):
+#     nBins = 6
+#     n_subs = len(y)
+#     abs_ad_trend = torch.zeros((n_subs, nBins), dtype=torch.float32, requires_grad=True)
+
+#     def pytorch_ttest(cond1, cond2):
+#         mean1 = torch.mean(cond1, dim=0)
+#         mean2 = torch.mean(cond2, dim=0)
+#         std1 = torch.std(cond1, dim=0)
+#         std2 = torch.std(cond2, dim=0)
+#         n1 = cond1.size(0)
+#         n2 = cond2.size(0)
+#         t_stat = (mean1 - mean2) / torch.sqrt((std1**2/n1)+(std2**2/n2))
+#         return t_stat
+
+
+#     for sub in range(n_subs):
+#         pattern = y[sub]
+#         v = pattern.shape[1] # voxels
+#         n = pattern.shape[0] # trials
+
+#         cond1_p1 = pattern[:n // 4, :v]
+#         cond1_p2 = pattern[n // 4:n // 2, :v]
+#         cond2_p1 = pattern[n // 2:3 * n // 4, :v]
+#         cond2_p2 = pattern[3 * n // 4:, :v]
+
+#         cond1_combined = torch.vstack([cond1_p1, cond1_p2])
+#         cond2_combined = torch.vstack([cond2_p1, cond2_p2])
+#         tval1 = pytorch_ttest(cond1_combined, cond2_combined)
+
+#         cond2_combined = torch.vstack([cond2_p1, cond2_p2])
+#         cond1_combined = torch.vstack([cond1_p1, cond1_p2])
+#         tval2 = pytorch_ttest(cond2_combined, cond1_combined)
+
+#         # Sorting the t-values by their absolute values
+#         tval_sorted_ind1 = torch.argsort(torch.abs(torch.tensor(tval1, dtype=torch.float32, requires_grad=True)))
+#         tval_sorted_ind2 = torch.argsort(torch.abs(torch.tensor(tval2, dtype=torch.float32, requires_grad=True)))
+
+#         # Compute means for conditions
+#         c1_init = torch.mean(cond1_p1, axis=0)
+#         c1_rep = torch.mean(cond1_p2, axis=0)
+#         c2_init = torch.mean(cond2_p1, axis=0)
+#         c2_rep = torch.mean(cond2_p2, axis=0)
+
+#         # Reorder based on sorted indices
+#         c1_sinit = c1_init[tval_sorted_ind1]
+#         c1_srep = c1_rep[tval_sorted_ind1]
+#         c2_sinit = c2_init[tval_sorted_ind2]
+#         c2_srep = c2_rep[tval_sorted_ind2]
+
+#         # Compute trends
+#         abs_init_trend = (c1_sinit + c2_sinit) / 2
+#         abs_rep_trend = (c1_srep + c2_srep) / 2
+#         abs_adaptation_trend = abs_init_trend - abs_rep_trend
+#         AS = abs_adaptation_trend
+
+#         percInds = (torch.round((torch.arange(1, len(AS) + 1) * (nBins - 1)) / len(AS)) / (nBins - 1)) * (nBins - 1)
+
+#         for i in range(nBins):
+#             abs_ad_trend[sub, i] = torch.mean(AS[percInds == i], axis=0)
+        
+#     AMS = abs_ad_trend
+
+#     return AMS
+
 def calculate_AMA(y):
     nBins = 6
     n_subs, n, v = y.shape
@@ -426,29 +557,10 @@ def calculate_BC(y):
 def calculate_CP(WC, BC):
     return WC - BC
 
-def calculate_AMS(y):
-    nBins = 6
-    subs = y.shape[0]
-    return torch.rand(subs, nBins, requires_grad=True)
-
     
 def produce_confidence_interval(y, pflag):
     
     AM, CP, WC, BC, AMA, AMS = produce_basic_statistics(y, pflag)
-    # print(AM.grad_fn)
-
-    # print("AM")
-    # print(AM)
-    # print("CP")
-    # print(CP)
-    # print("WC")
-    # print(WC)
-    # print("BC")
-    # print(BC)
-    # print("AMA")
-    # print(AMA)
-    # print("AMS")
-    # print(AMS)
 
     def compute_slope(data):
         L = data.shape[1]
@@ -470,12 +582,12 @@ def produce_confidence_interval(y, pflag):
 #     Y = X if Y is None else Y
 #     return torch.corrcoef(torch.hstack((Y,X)), rowvar=False)[0,1:]
 
-def pytorch_ttest(cond1, cond2):
-    mean1 = torch.mean(cond1, dim=0)
-    mean2 = torch.mean(cond2, dim=0)
-    std1 = torch.std(cond1, dim=0)
-    std2 = torch.std(cond2, dim=0)
-    n1 = cond1.size(0)
-    n2 = cond2.size(0)
-    t_stat = (mean1 - mean2) / torch.sqrt((std1**2/n1)+(std2**2/n2))
-    return t_stat
+# def pytorch_ttest(cond1, cond2):
+#     mean1 = torch.mean(cond1, dim=0)
+#     mean2 = torch.mean(cond2, dim=0)
+#     std1 = torch.std(cond1, dim=0)
+#     std2 = torch.std(cond2, dim=0)
+#     n1 = cond1.size(0)
+#     n2 = cond2.size(0)
+#     t_stat = (mean1 - mean2) / torch.sqrt((std1**2/n1)+(std2**2/n2))
+#     return t_stat
