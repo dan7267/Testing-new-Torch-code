@@ -86,73 +86,151 @@ def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_af
     if paradigm == 'grating':
         d = torch.minimum(torch.abs(d), X-torch.abs(d))
 
-    scaling_factors = {
-        # 2: torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a))),  # Local Scaling
-        # 2: a + d / b * (1-a),
-        2: smooth_min(torch.ones_like(d), (a+smooth_abs(d/b)*(1-a))),
-        3: torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a))),  # Remote Scaling
-        5: torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a))),  # Local Sharpening
-        6: torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a))),  # Remote Sharpening
-        7: a * torch.sign(d),
-        8: torch.sign(d) *torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a))),  # Local Repulsion
-        9: torch.sign(d) * torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a))),  # Remote Repulsion
-        10: a * torch.sign(d),
-        11: torch.sign(d) * torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a))),  # Local Attraction
-        12: torch.sign(d) * torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a))),  # Remote Attraction
-    }
-
-    shifting_models = {7, 8, 9, 10, 11, 12}  # Models that involve shifting
-    if model_type in {1, 4}:
-        e = a * torch.ones((nt, v, N), dtype=torch.float32, requires_grad=True)
-    elif model_type in scaling_factors:
-        e = scaling_factors[model_type]
-    print("e.grad_fn")
-    print(e.grad_fn)
-    num_blocks = nt // reset_after
-    e_reshaped = e.reshape(num_blocks, reset_after, v, N)
-    e_modified = torch.ones_like(e_reshaped)
-    e_modified[:, 1:, :, :] = e_reshaped[:, 1:, :, :]
-    transformed_array = torch.cumprod(e_modified, dim=1)
-    transformed_array = transformed_array.reshape(nt, v, N)
-
-
-    if model_type in {4, 5, 6}:
-        temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None], transformed_array[..., None] * sigma, paradigm)
-        #x becomes 1 x 1 x 1 x 180
-        #u_vals becomes 1 x 200 x 8 x 1
-        #c becomes 18 x 200 x 8 x 1
-        temp = temp/ torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
-    elif model_type in shifting_models:  # Shift-based models
-        shift_direction = 1 if model_type in {7, 8, 9} else -1  # Repulsive (+) vs. Attractive (-)
-        shift_amount = transformed_array * X/2
-        shift_amount[::reset_after, :, :] = 1
-        temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
-        temp =temp / torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
-    elif model_type in {1, 2, 3}:  # Scaling models (1, 2, 3)
-        temp = transformed_array[..., None] * init[None, :, :, :]
+    if model_type == 1:
+        temp = produce_temp_1(a, nt, v, N, reset_after, init)
+    elif model_type == 2:
+        temp = produce_temp_2(a, b, d, nt, reset_after, v, N, init)
+    elif model_type == 3:
+        temp = produce_temp_3(a, b, d, nt, reset_after, v, N, init)
+    elif model_type == 4:
+        temp = produce_temp_4(a, nt, v, N, reset_after, sigma, paradigm, u_vals, x)
+    elif model_type == 5:
+        temp = produce_temp_5(a, nt, v, N, reset_after, sigma, paradigm, u_vals, x, d, b)
+    elif model_type == 6:
+        temp = produce_temp_6(a, nt, v, N, reset_after, sigma, paradigm, u_vals, x, d, b)
+    elif model_type == 7:
+        temp = produce_temp_7(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X)
+    elif model_type == 8:
+        temp = produce_temp_8(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b)
+    elif model_type == 9:
+        temp = produce_temp_9(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b)
+    elif model_type == 10:
+        temp = produce_temp_10(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X)
+    elif model_type == 11:
+        temp = produce_temp_11(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b)
+    elif model_type == 12:
+        temp = produce_temp_12(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b)
+    
     rep = temp
     rep[::reset_after, :, :, :] = init
-    print("rep.grad_fn")
-    print(rep.grad_fn)
-    # print(rep)
 
 
     cond_indices = (int(cond1 / dt - 1), int(cond2 / dt - 1))
-    # print(rep.shape)
-        # activity = np.take(rep, cond_indices[0], axis=-1) * (np.array(j)[:, None, None] == cond1) + \
-        #        np.take(rep, cond_indices[1], axis=-1) * (np.array(j)[:, None, None] == cond2)
-
     activity = rep[..., cond_indices[0]] * (torch.tensor(j, dtype=torch.float32, requires_grad=True)[:, None, None] == cond1) + \
                rep[..., cond_indices[1]] * (torch.tensor(j, dtype=torch.float32, requires_grad=True)[:, None, None] == cond2)
 
     pattern = torch.mean(activity, dim=2)
 
     return pattern
-    # return {
-    #     'pattern': pattern,
-    #     'rep': rep,
-    #     'activity': activity
-    # }
+
+def produce_temp_1(a, nt, v, N, reset_after, init):
+    e = a * torch.ones((nt, v, N), dtype=torch.float32, requires_grad=True)
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    temp = transformed_array[..., None] * init[None, :, :, :]
+    return temp
+
+def produce_temp_2(a, b, d, nt, reset_after, v, N, init):
+    e = torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a)))  # Local Scaling
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    temp = transformed_array[..., None] * init[None, :, :, :]
+    return temp
+
+def produce_temp_3(a, b, d, nt, reset_after, v, N, init):
+    e = torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a)))  # Remote Scaling
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    temp = transformed_array[..., None] * init[None, :, :, :]
+    return temp
+
+def produce_temp_4(a, nt, v, N, reset_after, sigma, paradigm, u_vals, x):
+    e = a * torch.ones((nt, v, N), dtype=torch.float32, requires_grad=True)
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None], transformed_array[..., None] * sigma, paradigm)
+    temp = temp/ torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
+    return temp
+
+def produce_temp_5(a, nt, v, N, reset_after, sigma, paradigm, u_vals, x, d, b):
+    e = torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a)))  # Local Sharpening
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None], transformed_array[..., None] * sigma, paradigm)
+    temp = temp/ torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
+    return temp
+
+def produce_temp_6(a, nt, v, N, reset_after, sigma, paradigm, u_vals, x, d, b):
+    e = torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a)))  # Remote Sharpening
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None], transformed_array[..., None] * sigma, paradigm)
+    temp = temp/ torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
+    return temp
+
+def produce_temp_7(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X):
+    e = a * torch.sign(d)
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    shift_direction = 1
+    shift_amount = transformed_array * X/2
+    shift_amount[::reset_after, :, :] = 1
+    temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
+    temp =temp / torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
+    return temp
+
+def produce_temp_8(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b):
+    e = torch.sign(d) *torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a)))  # Local Repulsion
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    shift_direction = 1
+    shift_amount = transformed_array * X/2
+    shift_amount[::reset_after, :, :] = 1
+    temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
+    temp =temp / torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
+    return temp
+
+def produce_temp_9(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b):
+    e = torch.sign(d) * torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a)))  # Remote Repulsion
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    shift_direction = 1
+    shift_amount = transformed_array * X/2
+    shift_amount[::reset_after, :, :] = 1
+    temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
+    temp =temp / torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
+    return temp
+
+def produce_temp_10(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X):
+    e = a * torch.sign(d)
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    shift_direction = -1
+    shift_amount = transformed_array * X/2
+    shift_amount[::reset_after, :, :] = 1
+    temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
+    temp =temp / torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
+    return temp
+
+def produce_temp_11(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b):
+    e = torch.sign(d) * torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a)))  # Local Attraction
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    shift_direction = -1
+    shift_amount = transformed_array * X/2
+    shift_amount[::reset_after, :, :] = 1
+    temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
+    temp =temp / torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
+    return temp
+
+def produce_temp_12(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b):
+    e = torch.sign(d) * torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a)))  # Remote Attraction
+    transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
+    shift_direction = -1
+    shift_amount = transformed_array * X/2
+    shift_amount[::reset_after, :, :] = 1
+    temp = gaussian(x[None, None, None, :], u_vals[None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
+    temp =temp / torch.max(temp, dim=-1, keepdims=True, dtype=torch.float32, requires_grad=True)
+    return temp
+
+
+def produce_transformed_array(nt, reset_after, v, N, e):
+    num_blocks = nt // reset_after
+    e_reshaped = e.reshape(num_blocks, reset_after, v, N)
+    e_modified = torch.ones_like(e_reshaped)
+    e_modified[:, 1:, :, :] = e_reshaped[:, 1:, :, :]
+    transformed_array = torch.cumprod(e_modified, dim=1)
+    transformed_array = transformed_array.reshape(nt, v, N)
+    return transformed_array
 
 def gaussian(x, u, sigma, paradigm):
     if paradigm == 'face':
@@ -167,24 +245,6 @@ def circular_g(x, u, sigma):
     # x = np.atleast_1d(x)
     c = 1 / (2*torch.pi*torch.special.i0(sigma))
     return c * torch.exp(sigma * torch.cos(x-u))
-
-
-
-# v, X = 1, np.pi
-# cond1, cond2 = X/4, 3*X/4
-# sub_num = 18
-# noise = 0.03
-# N = 8
-# paradigm = 'grating'
-# a = 0.8
-# b = 0.8
-# sigma = 0.8
-# model_type = 3
-# j, ind, reset_after, _ = paradigm_setting(paradigm, cond1, cond2)
-
-# p = simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_after, paradigm, N)['pattern']
-
-# print(p)
 
 def smooth_abs(x, eps=1e-6):
     return torch.sqrt(x**2 + eps)
