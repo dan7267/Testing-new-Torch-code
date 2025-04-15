@@ -73,13 +73,13 @@ def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_af
     # u_vals = torch.tensor(u, dtype=torch.float32, requires_grad=True)
     u_indices = torch.searchsorted(tuning_curves_peaks, u_vals) #This maps the randomly selected values back to their positions in the original array
     init = precomputed_gaussians[u_indices] #init is 1 x 8 x 20
-
     #Create reset mask (as before, this is True every interval of reset after)
     # reset_mask = torch.mod(torch.arange(nt), reset_after) == 0
     c = torch.ones((nt, v, N), dtype=torch.float32, requires_grad=True) #Adaptation factor for every trial, voxel, and neuron
     #Compute adaptation for all trials at once using broadcasting
     # d = np.abs(u_vals[None, :, :] - np.array(j)[:, None, None])
-    d = u_vals[None, :, :] - torch.tensor(j, dtype=torch.float32, requires_grad=True)[:, None, None]
+    # d = u_vals[None, :, :] - torch.tensor(j, dtype=torch.float32, requires_grad=True)[:, None, None]
+    d = u_vals[None, :, :] - j[:, None, None]
     #u_vals[None, :, :] is 1 x 200 x 8
     #j is 48 so 48 x 1 x 1 meaning these can broadcast when subtracting!
 
@@ -116,8 +116,8 @@ def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_af
 
 
     cond_indices = (int(cond1 / dt - 1), int(cond2 / dt - 1))
-    activity = rep[..., cond_indices[0]] * (torch.tensor(j, dtype=torch.float32, requires_grad=True)[:, None, None] == cond1) + \
-               rep[..., cond_indices[1]] * (torch.tensor(j, dtype=torch.float32, requires_grad=True)[:, None, None] == cond2)
+    activity = rep[..., cond_indices[0]] * (j[:, None, None] == cond1) + \
+               rep[..., cond_indices[1]] * (j[:, None, None] == cond2)
 
     pattern = torch.mean(activity, dim=2)
 
@@ -130,13 +130,13 @@ def produce_temp_1(a, nt, v, N, reset_after, init):
     return temp
 
 def produce_temp_2(a, b, d, nt, reset_after, v, N, init):
-    e = torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a)))  # Local Scaling
+    e = smooth_min(torch.ones_like(d), (a + smooth_abs(d / b) * (1 - a)))  # Local Scaling
     transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
     temp = transformed_array[..., None] * init[None, :, :, :]
     return temp
 
 def produce_temp_3(a, b, d, nt, reset_after, v, N, init):
-    e = torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a)))  # Remote Scaling
+    e = smooth_max(a*torch.ones_like(d), (1 - smooth_abs(d / b) * (1 - a)))  # Remote Scaling
     transformed_array = produce_transformed_array(nt, reset_after, v, N, e)
     temp = transformed_array[..., None] * init[None, :, :, :]
     return temp
@@ -250,4 +250,6 @@ def smooth_abs(x, eps=1e-6):
     return torch.sqrt(x**2 + eps)
 
 def smooth_min(a, b, beta=10.0):
-    return -torch.log(torch.exp(-beta * a) + torch.exp(-beta * b)) / beta
+    return (a * torch.exp(-beta * a) + b * torch.exp(-beta * b)) / (torch.exp(-beta * a) + torch.exp(-beta * b))
+def smooth_max(a, b, beta=10.0):
+    return (a * torch.exp(beta * a) + b * torch.exp(beta * b)) / (torch.exp(beta * a) + torch.exp(beta * b))

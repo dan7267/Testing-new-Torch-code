@@ -17,8 +17,6 @@ def simulate_subject(sub, v, X, j, cond1, cond2, a, b, sigma, model_type, reset_
     """Produces the voxel pattern for one simulation for one parameter combination of one paradigm"""
 
     out = simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_after, paradigm, N)
-    print("out.grad_fn")
-    print(out.grad_fn)
     # /pattern = (out.T + torch.randn(v, len(j), requires_grad=True) * noise).T
     pattern = out + torch.randn_like(out)*noise
     v = pattern.shape[1]
@@ -39,21 +37,11 @@ def produce_statistics_one_simulation(paradigm, model_type, sigma, a, b, n_jobs,
     y = torch.zeros(sub_num, dtype=torch.float32)
 
     j, ind, reset_after, _ = paradigm_setting(paradigm, cond1, cond2)
-    """Removing Parallel Processing for now"""
-    # results = Parallel(n_jobs=n_jobs)(
-    #     delayed(simulate_subject)(sub, v, X, j, cond1, cond2, a, b, sigma, model_type, reset_after, paradigm, N, noise, ind)
-    #     for sub in range(sub_num)
-    # )
-
-    # print(results)
 
     results = torch.stack(
         [simulate_subject(sub, v, X, j, cond1, cond2, a, b, sigma, model_type, reset_after, paradigm, N, noise, ind)
         for sub in range(sub_num)
         ])
-    print("results.grad_fn")
-    print(results.grad_fn)
-    print(results)
     return produce_confidence_interval(results, 1)
 
 def process_empirical_subject(sub, paradigm):
@@ -89,13 +77,6 @@ def simulate_data(sigma, a, b, model_type, paradigm, n_jobs):
     simulation = True
     j, ind, reset_after, _ = paradigm_setting(paradigm, cond1, cond2)
     results = produce_statistics_one_simulation(paradigm, model_type, sigma, a, b, n_jobs, n_simulations)
-    print("results.grad_fn")
-    print(results.grad_fn)
-    print(results)
-    # print("results")
-    # print(results)
-    # print("results.grad_fn")
-    # print(results.grad_fn.next_functions)
     return results
 
 def empirical_data(paradigm):
@@ -103,24 +84,14 @@ def empirical_data(paradigm):
     results = produce_statistics_empirical(paradigm, sub_num)
     return results
 
-# print(simulate_data(0.1, 0.1, 0.1, 1, 'face', n_jobs))
-# print(empirical_data('face'))
-
 weights = 1/6 * torch.ones(6)
 
 example_simulated_data = torch.tensor([-0.11214855688292176, -0.7090723202895317, 0.1294631477874019, -0.8385354680769335, -0.001882580680022596, 0.06292158608015454])
 example_empiricaled_data = torch.tensor([-0.3657197926719654, -0.0337486931658741, -0.020352066375412297, -0.013396626790461809, 0.04041971183397424, 0.1837277393276265])
 
 def objective_function(simulated_data, empiricaled_data, weights):
-    # print(simulated_data)
-    # print(empiricaled_data)
-    # print(simulated_data)
-    # print(empiricaled_data)
     objective=torch.sum(weights * torch.abs(simulated_data - empiricaled_data))
-    # print(objective.grad_fn)
     return objective
-
-# print(objective_function(example_simulated_data, example_empiricaled_data, weights))
 
 models = {
     'global scaling' : 1,
@@ -145,15 +116,9 @@ parameters = {
     'y' : [0.1, 100]
 }
 
-
-
-
-
 n_jobs = 1
 
-
 example_empiricaled_data = torch.tensor([-0.3657197926719654, -0.0337486931658741, -0.020352066375412297, -0.013396626790461809, 0.04041971183397424, 0.1837277393276265], requires_grad=True)
-
 
 def optimise_model(a_param, b_param, log_sigma_param, n_steps, lr, model_type, paradigm, empirical_data, weights):
     optimiser = torch.optim.Adam([a_param, b_param, log_sigma_param], lr=lr)
@@ -162,13 +127,7 @@ def optimise_model(a_param, b_param, log_sigma_param, n_steps, lr, model_type, p
         optimiser.zero_grad()
         sigma_param = torch.exp(log_sigma_param)
         simulated_data = simulate_data(sigma_param, a_param, b_param, model_type, paradigm, n_jobs)
-        print("simulated_data.grad_fn")
-        print(simulated_data.grad_fn)
-        print(simulated_data)
         loss = objective_function(simulated_data, empirical_data, weights)
-        print("loss.grad_fn")
-        print(loss.grad_fn)
-        print(loss)
         # loss.backward()
         loss.backward(retain_graph=True)
         dot =torchviz.make_dot(loss, params = {"a": a_param, "b": b_param, "sigma": sigma_param, "loss":loss})
@@ -185,7 +144,7 @@ def optimise_model(a_param, b_param, log_sigma_param, n_steps, lr, model_type, p
         print(f"    sigma: {sigma_param.item(): .4f}")
 
 a_init = 0.1
-b_init = 0.1
+b_init = 0.9
 sigma_init = 0.1
 
 params = torch.nn.Parameter(torch.tensor([a_init, b_init, sigma_init], dtype=torch.float32, requires_grad=True))
@@ -196,4 +155,4 @@ log_sigma_param = torch.tensor(-2.3026, dtype=torch.float32, requires_grad=True)
 # print(params)
 weights = 1/6 *torch.ones(6, requires_grad=True)
 
-optimise_model(a_param=a_param, b_param=b_param, log_sigma_param=log_sigma_param, n_steps=6, lr=0.01, model_type=2, paradigm='face', empirical_data=example_empiricaled_data, weights=weights)
+optimise_model(a_param=a_param, b_param=b_param, log_sigma_param=log_sigma_param, n_steps=4, lr=0.01, model_type=2, paradigm='face', empirical_data=example_empiricaled_data, weights=weights)
