@@ -10,7 +10,7 @@ def produce_basic_statistics(y, plag):
     AMS = calculate_AMS(y)
     AMA = calculate_AMA(y)
 
-    return AM, CP, WC, BC, AMA, AMS
+    return AM, WC, BC, CP, AMS, AMA
 
 def calculate_AMS(y):
     n_subs, n, v = y.shape
@@ -243,8 +243,7 @@ def calculate_CP(WC, BC):
     return WC - BC
     
 def produce_confidence_interval(y, pflag):
-    
-    AM, CP, WC, BC, AMA, AMS = produce_basic_statistics(y, pflag)
+    AM, WC, BC, CP, AMS, AMA = produce_basic_statistics(y, pflag)
 
     def compute_slope(data):
         L = data.shape[1]
