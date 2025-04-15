@@ -4,7 +4,7 @@ from paradigm_setting import paradigm_setting
 import torch
 np.set_printoptions(threshold=np.inf)
 
-def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_after, paradigm, N):
+def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset_after, paradigm, N):
     """
 
     Parameters
@@ -120,6 +120,8 @@ def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, model_type, reset_af
                rep[..., cond_indices[1]] * (j[:, None, None] == cond2)
 
     pattern = torch.mean(activity, dim=2)
+
+    pattern = pattern * k
 
     return pattern
 
