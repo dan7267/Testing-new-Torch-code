@@ -4,7 +4,7 @@ from paradigm_setting import paradigm_setting
 import torch
 np.set_printoptions(threshold=np.inf)
 
-def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset_after, paradigm, N):
+def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset_after, paradigm, N, tuning_curves_indices):
     """
 
     Parameters
@@ -65,8 +65,7 @@ def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset
     #     dtype=torch.float32,
     #     requires_grad=True
     # )
-    indices = torch.randint(0, len(tuning_curves_peaks), (v,N))
-    u_vals = tuning_curves_peaks[indices]
+    u_vals = tuning_curves_peaks[tuning_curves_indices]
     u_vals.requires_grad_()
     # u = np.array([3*X/8, X/8, 3*X/8, X/8, X/8, X/8, 5*X/8, X/8])
     # u = np.tile(u, (v, 1))
@@ -121,7 +120,7 @@ def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset
 
     pattern = torch.mean(activity, dim=2)
     pattern = pattern * k
-
+    print(pattern.shape)
     return pattern
 
 def produce_temp_1(a, nt, v, N, reset_after, init):
