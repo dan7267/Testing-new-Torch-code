@@ -15,35 +15,53 @@ import matplotlib.pyplot as plt
 faceData = 'face_data.mat' #We need to change the data
 gratingData = 'grating_data.mat' #We need to change the data
 
-def simulate_subject(sub, v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset_after, paradigm, N, ind, gaussian_noise, tuning_curves_indices):
+def simulate_subject(v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset_after, paradigm, N, ind, gaussian_noise, tuning_curves_indices, sub_num):
     """Produces the voxel pattern for one simulation for one parameter combination of one paradigm"""
-
-    out = simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset_after, paradigm, N, tuning_curves_indices)
-    # /pattern = (out.T + torch.randn(v, len(j), requires_grad=True) * noise).T
-    pattern = out + gaussian_noise
-    v = pattern.shape[1]
+    T = len(j)
+    noisy_pattern = torch.empty((sub_num, T, v), dtype = torch.float32)
+    batch_size = 3
+    for i in range(0, sub_num, batch_size):
+        current_batch_size = min(batch_size, sub_num - i)
+        out = simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset_after, paradigm, N, tuning_curves_indices[i:i+current_batch_size, :, :], current_batch_size)
+        noisy_pattern[i:i+current_batch_size] = out + gaussian_noise[i:i+current_batch_size,:,:]
     if paradigm == 'face':
-        return torch.vstack((pattern[::4, :v], pattern[1::4, :v], pattern[2::4, :v], pattern[3::4, :v]))
-    elif paradigm == 'grating':
-        return torch.vstack((pattern[ind[0], :v], pattern[ind[2], :v], pattern[ind[3], :v], pattern[ind[5], :v]))
+        # Build condition indices using torch.arange
+        cond1_p1 = torch.arange(0, 32, 4)
+        cond1_p2 = torch.arange(1, 32, 4)
+        cond2_p1 = torch.arange(2, 32, 4)
+        cond2_p2 = torch.arange(3, 32, 4)
 
-def produce_slopes_one_simulation(paradigm, model_type, sigma, a, b, k, n_jobs, n_simulations, v, gaussian_noise_near, tuning_curves_indices_near, sub_num, N):
+        # Stack condition slices
+        pattern_split = torch.stack([
+            noisy_pattern[:, cond1_p1, :],
+            noisy_pattern[:, cond1_p2, :],
+            noisy_pattern[:, cond2_p1, :],
+            noisy_pattern[:, cond2_p2, :]
+        ], dim=1)  # shape: (batch_size, 4, T/4, v)
+
+        reshaped = pattern_split.reshape(sub_num, 32, v)  # shape: (batch, 32, voxel)
+
+        return reshaped
+    elif paradigm == 'grating':
+        pattern_split = torch.stack([
+            noisy_pattern[:, ind[0], :],
+            noisy_pattern[:, ind[2], :],
+            noisy_pattern[:, ind[3], :],
+            noisy_pattern[:, ind[5], :]
+        ], dim=1)
+        reshaped = pattern_split.reshape(sub_num, 32, v)
+        return reshaped
+
+def produce_slopes_one_simulation(paradigm, model_type, sigma, a, b, k, n_jobs, n_simulations, v, gaussian_noise_near, tuning_curves_indices_near, sub_num, N, j, ind, reset_after):
     """Produces the slope of each data feature for one parameter combination for one simulation"""
     X = torch.pi
+    sub_num = 18
     cond1, cond2 = X/4, 3*X/4
-    y = torch.zeros(sub_num, dtype=torch.float32)
+    N = 8
+    y = simulate_subject(v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset_after, paradigm, N, ind, gaussian_noise_near, tuning_curves_indices_near, sub_num)
+    return produce_confidence_interval(y, 1)
 
-    j, ind, reset_after, _ = paradigm_setting(paradigm, cond1, cond2)
-    results_list = []
-
-    for sub in range(sub_num):
-        gaussian_noise = gaussian_noise_near[sub]
-        tuning_curves_indices = tuning_curves_indices_near[sub]
-        results_list.append(simulate_subject(sub, v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset_after, paradigm, N, ind, gaussian_noise, tuning_curves_indices))
-    results = torch.stack(results_list)
-    return produce_confidence_interval(results, 1)
-
-def produce_slopes_multiple_simulations(sigma, a, b, k, model_type, paradigm, n_jobs, n_simulations, v, gaussian_noise_all, tuning_curves_indices_all, sub_num, N):
+def produce_slopes_multiple_simulations(sigma, a, b, k, model_type, paradigm, n_jobs, n_simulations, v, gaussian_noise_all, tuning_curves_indices_all, sub_num, N, j, ind, reset_after):
     #Is this function necessary. Yes, currently just one simulation
     """Simulate data using given parameters, with specific random seed
     so that each run has different random variations but is reproducible for the
@@ -52,18 +70,11 @@ def produce_slopes_multiple_simulations(sigma, a, b, k, model_type, paradigm, n_
     # torch.manual_seed(seed)
     # simulated = ...
     X = torch.pi
-    cond1, cond2 = X/4, 3*X/4
-    simulation = True
-    j, ind, reset_after, _ = paradigm_setting(paradigm, cond1, cond2)
     results = torch.zeros((n_simulations, 6))
     for sim in range(n_simulations):
-        gaussian_noise_near=gaussian_noise_all[sim]
-        tuning_curves_indices_near = tuning_curves_indices_all[sim]
-        results[sim] = produce_slopes_one_simulation(paradigm, model_type, sigma, a, b, k, n_jobs, n_simulations, v, gaussian_noise_near, tuning_curves_indices_near, sub_num, N)
-        print("results[sim]")
-        print(results[sim])
-    print("results")
-    print(results)
+        gaussian_noise_near=gaussian_noise_all[sim] #size sub_num, trials, voxels
+        tuning_curves_indices_near = tuning_curves_indices_all[sim] #size sub_num, v, N
+        results[sim] = produce_slopes_one_simulation(paradigm, model_type, sigma, a, b, k, n_jobs, n_simulations, v, gaussian_noise_near, tuning_curves_indices_near, sub_num, N, j, ind, reset_after)
     return results
 
 def process_empirical_subject(sub, paradigm):
@@ -104,21 +115,24 @@ def objective_function(simulated_data, empirical_data, weights):
     simulated_data will be an n_simulations x 6 tensor which is then averaged at the end"""
     n_simulations = simulated_data.shape[0]
     objective = 0
+    print("simulated_data NaN:", torch.isnan(simulated_data).any())
+    print("simulated_data:", simulated_data)
     for i in range(n_simulations):
         objective = objective + torch.sum(weights * torch.abs(simulated_data[i] - empirical_data))
     
     objective = objective / n_simulations
     return objective
 
-def optimise_model(a_param, b_param, log_sigma_param, raw_k_param, n_steps, lr, model_type, paradigm, empirical_data, weights, n_simulations, v, gaussian_noise_all, tuning_curves_indices_all, sub_num, N):
+def optimise_model(a_param, b_param, log_sigma_param, raw_k_param, n_steps, lr, model_type, paradigm, empirical_data, weights, n_simulations, v, gaussian_noise_all, tuning_curves_indices_all, sub_num, N, j, ind, reset_after):
     optimiser = torch.optim.Adam([a_param, b_param, log_sigma_param, raw_k_param], lr=lr)
     loss_list = []
+    torch.autograd.set_detect_anomaly(True)
 
     for step in range(n_steps):
         optimiser.zero_grad()
         sigma_param = torch.exp(log_sigma_param)
         k_param = torch.nn.functional.softplus(raw_k_param)
-        simulated_data = produce_slopes_multiple_simulations(sigma_param, a_param, b_param, k_param, model_type, paradigm, n_jobs, n_simulations, v, gaussian_noise_all, tuning_curves_indices_all, sub_num, N)
+        simulated_data = produce_slopes_multiple_simulations(sigma_param, a_param, b_param, k_param, model_type, paradigm, n_jobs, n_simulations, v, gaussian_noise_all, tuning_curves_indices_all, sub_num, N, j, ind, reset_after)
         loss = objective_function(simulated_data, empirical_data, weights)
         # loss.backward()
         loss.backward(retain_graph=True)
@@ -150,10 +164,14 @@ sigma_init = 0.9
 k_init = 0.9
 
 params = torch.nn.Parameter(torch.tensor([a_init, b_init, sigma_init], dtype=torch.float32, requires_grad=True))
-a_param = torch.tensor(a_init, dtype=torch.float32, requires_grad=True)
-b_param = torch.tensor(b_init, dtype=torch.float32, requires_grad=True)
-log_sigma_param = torch.tensor(-2.3026, dtype=torch.float32, requires_grad=True)
-raw_k_param = torch.tensor([torch.log(torch.exp(torch.tensor(k_init)) - 1)], dtype=torch.float32, requires_grad=True)
+# a_param = torch.tensor(a_init, dtype=torch.float32, requires_grad=True)
+# b_param = torch.tensor(b_init, dtype=torch.float32, requires_grad=True)
+# log_sigma_param = torch.tensor(-2.3026, dtype=torch.float32, requires_grad=True)
+# raw_k_param = torch.tensor([torch.log(torch.exp(torch.tensor(k_init)) - 1)], dtype=torch.float32, requires_grad=True)
+a_param = torch.nn.Parameter(torch.tensor(a_init, dtype=torch.float32))
+b_param = torch.nn.Parameter(torch.tensor(b_init, dtype=torch.float32))
+log_sigma_param = torch.nn.Parameter(torch.tensor(-2.3026, dtype=torch.float32))  # exp(-2.3026) ≈ 0.1
+raw_k_param = torch.nn.Parameter(torch.log(torch.exp(torch.tensor(k_init)) - 1).unsqueeze(0))
 weights = 1/6 *torch.ones(6, requires_grad=True)
 
 models = {
@@ -184,7 +202,7 @@ empirical_grating_data = torch.tensor([-0.6499, -0.0525, -0.0610, 0.0085, -0.023
 #Defining added gaussian noise so each e.g simulation 1 for a parameter set is the same as simulation 1 for a different parameter set
 #Need noise to be gaussian * 0.03 with a n_simulations * n_trials * v
 
-paradigm = 'grating'
+paradigm = 'face'
 n_simulations = 4
 v = 200
 N = 8
@@ -193,9 +211,12 @@ if paradigm == 'face':
     n_trials = 32
 elif paradigm == 'grating':
     n_trials = 48
+cond1 = torch.pi / 4
+cond2 = torch.pi * 3/4
+j, ind, reset_after, _ = paradigm_setting(paradigm, cond1, cond2)
 
 gaussian_noise_all = 0.03 * torch.randn((n_simulations, sub_num, n_trials, v))
-tuning_curves_indices_all = torch.randint(0, N, (n_simulations, sub_num, v,N))
+tuning_curves_indices_all = torch.randint(0, N, (n_simulations, sub_num, v, N))
 
 
 optimise_model(
@@ -203,9 +224,9 @@ optimise_model(
     b_param=b_param, 
     log_sigma_param=log_sigma_param, 
     raw_k_param=raw_k_param, 
-    n_steps=5, 
+    n_steps=3, 
     lr=0.1, 
-    model_type=2, 
+    model_type=8, 
     paradigm=paradigm, 
     empirical_data=empirical_face_data if paradigm == 'face' else empirical_grating_data, 
     weights=weights,
@@ -214,4 +235,7 @@ optimise_model(
     gaussian_noise_all=gaussian_noise_all,
     tuning_curves_indices_all=tuning_curves_indices_all,
     sub_num=sub_num,
-    N=N)
+    N=N,
+    j=j,
+    ind=ind,
+    reset_after=reset_after)
