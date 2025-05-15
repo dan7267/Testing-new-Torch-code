@@ -147,21 +147,21 @@ def produce_temp_4(a, nt, v, N, reset_after, sigma, paradigm, u_vals, x, d, sub_
     transformed_array = produce_transformed_array(nt, reset_after, v, N, e, sub_num)
     temp = gaussian(x[None, None, None, None, :], u_vals[:, None, :, :, None], transformed_array[..., None] * sigma, paradigm)
     # print(torch.max(temp, dim=-1, keepdims=True).values)
-    temp = temp/ torch.max(temp, dim=-1, keepdims=True).values
+    temp = temp/ (torch.max(temp, dim=-1, keepdims=True).values +1e-6)
     return temp
 
 def produce_temp_5(a, nt, v, N, reset_after, sigma, paradigm, u_vals, x, d, b, sub_num):
     e = torch.minimum(torch.ones_like(d), (a + torch.abs(d / b) * (1 - a)))  # Local Sharpening
     transformed_array = produce_transformed_array(nt, reset_after, v, N, e, sub_num)
     temp = gaussian(x[None, None, None, None, :], u_vals[:, None, :, :, None], transformed_array[..., None] * sigma, paradigm)
-    temp = temp/ torch.max(temp, dim=-1, keepdims=True).values
+    temp = temp/ (torch.max(temp, dim=-1, keepdims=True).values +1e-6)
     return temp
 
 def produce_temp_6(a, nt, v, N, reset_after, sigma, paradigm, u_vals, x, d, b, sub_num):
     e = torch.maximum(a*torch.ones_like(d), (1 - torch.abs(d / b) * (1 - a)))  # Remote Sharpening
     transformed_array = produce_transformed_array(nt, reset_after, v, N, e, sub_num)
     temp = gaussian(x[None, None, None, None, :], u_vals[:, None, :, :, None], transformed_array[..., None] * sigma, paradigm)
-    temp = temp/ torch.max(temp, dim=-1, keepdims=True).values
+    temp = temp/ (torch.max(temp, dim=-1, keepdims=True).values +1e-6)
     return temp
 
 def produce_temp_7(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, sub_num):
@@ -171,7 +171,7 @@ def produce_temp_7(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, s
     shift_amount = transformed_array * X/2
     shift_amount[:, ::reset_after, :, :] = 1
     temp = gaussian(x[None, None, None, None, :], u_vals[:, None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
-    temp =temp / torch.max(temp, dim=-1, keepdims=True).values
+    temp =temp / (torch.max(temp, dim=-1, keepdims=True).values +1e-6)
     return temp
 
 def produce_temp_8(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b, sub_num):
@@ -182,7 +182,7 @@ def produce_temp_8(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b
     shift_amount = transformed_array * X/2
     shift_amount[:, ::reset_after, :, :] = 1
     temp = gaussian(x[None, None, None, None, :], u_vals[:, None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
-    temp =temp / torch.max(temp, dim=-1, keepdims=True).values
+    temp =temp / (torch.max(temp, dim=-1, keepdims=True).values +1e-6)
     # Functional replacement for in-place reset
     # init_shape = u_vals[:, None, :, :, None] + shift_direction * shift_amount[..., None]
     # temp = gaussian(x[None, None, None, None, :], init_shape, sigma, paradigm)
@@ -199,7 +199,7 @@ def produce_temp_9(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b
     shift_amount = transformed_array * X/2
     shift_amount[:, ::reset_after, :, :] = 1
     temp = gaussian(x[None, None, None, None, :], u_vals[:, None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
-    temp =temp / torch.max(temp, dim=-1, keepdims=True).values
+    temp =temp / (torch.max(temp, dim=-1, keepdims=True).values +1e-6)
     return temp
 
 def produce_temp_10(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, sub_num):
@@ -209,7 +209,7 @@ def produce_temp_10(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, 
     shift_amount = transformed_array * X/2
     shift_amount[:, ::reset_after, :, :] = 1
     temp = gaussian(x[None, None, None, None, :], u_vals[:, None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
-    temp =temp / torch.max(temp, dim=-1, keepdims=True).values
+    temp =temp / (torch.max(temp, dim=-1, keepdims=True).values +1e-6)
     return temp
 
 def produce_temp_11(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b, sub_num):
@@ -218,8 +218,11 @@ def produce_temp_11(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, 
     shift_direction = -1
     shift_amount = transformed_array * X/2
     shift_amount[:, ::reset_after, :, :] = 1
+    # print(shift_amount)
     temp = gaussian(x[None, None, None, None, :], u_vals[:, None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
-    temp =temp / torch.max(temp, dim=-1, keepdims=True).values
+    # print("temp")
+    # print(temp)
+    temp =temp / (torch.max(temp, dim=-1, keepdims=True).values +1e-6)
     return temp
 
 def produce_temp_12(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, b, sub_num):
@@ -229,7 +232,7 @@ def produce_temp_12(a, d, nt, reset_after, v, N, x, u_vals, sigma, paradigm, X, 
     shift_amount = transformed_array * X/2
     shift_amount[:, ::reset_after, :, :] = 1
     temp = gaussian(x[None, None, None, None, :], u_vals[:, None, :, :, None] + shift_direction * shift_amount[..., None], sigma, paradigm)
-    temp =temp / torch.max(temp, dim=-1, keepdims=True).values
+    temp =temp / (torch.max(temp, dim=-1, keepdims=True).values +1e-6)
     return temp
 
 
