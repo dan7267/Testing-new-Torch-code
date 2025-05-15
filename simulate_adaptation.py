@@ -249,7 +249,30 @@ def gaussian(x, u, sigma, paradigm):
     if paradigm == 'face':
         return non_circular_g(x, sigma, u)
     elif paradigm == 'grating':
-        return circular_g(2*x, 2*u, 1/sigma)
+        g = circular_g(2 * x, 2 * u, 1 / sigma)
+
+        # Batched NaN handling
+        nan_mask = torch.isnan(g)
+        if nan_mask.any():
+            # Replace NaN-affected entries with delta-like peaks
+            g_clean = g.clone()
+            # g and x must be same shape: [..., res]
+            # Find closest x to u in last dim
+            delta_idx = torch.argmin(torch.abs(x - u), dim=-1, keepdim=True)  # shape [..., 1]
+
+            # Flatten to index cleanly
+            flat_idx = torch.arange(g.numel(), device=g.device).reshape(g.shape)
+            mask_flat = nan_mask.reshape(-1, g.shape[-1])
+            g_flat = g_clean.reshape(-1, g.shape[-1])
+
+            for i in range(g_flat.shape[0]):
+                if mask_flat[i].any():
+                    g_flat[i].zero_()
+                    g_flat[i, delta_idx.reshape(-1)[i]] = 1.0
+
+            g = g_flat.reshape(g.shape)
+
+        return g
     
 def non_circular_g(x, sigma, u):
     return torch.exp(-((x-u)**2)/(2*sigma*sigma))
