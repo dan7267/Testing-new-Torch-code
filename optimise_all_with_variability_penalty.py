@@ -116,25 +116,18 @@ def empirical_data(paradigm):
 def objective_function(simulated_data, empirical_data, weights):
     """Now set up to run over many simulations. Instead of simulated_data being the 6 slopes in a 1D tensor,
     simulated_data will be an n_simulations x 6 tensor which is then averaged at the end"""
-    # n_simulations = simulated_data.shape[0]
-    # objective = 0
-    # # print("simulated_data NaN:", torch.isnan(simulated_data).any())
-    # # print("simulated_data:", simulated_data)
-    # for i in range(n_simulations):
-    #     objective = objective + torch.sum(weights * torch.abs(simulated_data[i] - empirical_data)**2)
-    
-    # objective = objective / n_simulations
-    # return objective
-    squared_errors = (simulated_data - empirical_data)**2
-    weighted_errors = squared_errors * weights
-    per_simulation_loss = weighted_errors.sum(dim=1)
-    return per_simulation_loss.mean()
+    squared_errors = (simulated_data - empirical_data)**2           # (n_sim, 6)
+    weighted_errors = squared_errors * weights                      # (n_sim, 6)
+    per_simulation_loss = weighted_errors.sum(dim=1)                # (n_sim,)
+    main_loss = per_simulation_loss.mean()                          # scalar
 
-    # empirical_data = empirical_data.unsqueeze(0)
-    # weights = weights.unsqueeze(0)
-    # squared_errors = (simulated_data - empirical_data) **2
-    # weighted_errors = squared_errors * weights
-    # return weighted_errors.mean()
+    # Variability penalty: weighted sum of feature std across simulations
+    std_per_feature = torch.std(simulated_data, dim=0, unbiased=False)  # (6,)
+    variability_penalty = (weights * std_per_feature).sum()             # scalar
+
+    # Total loss
+    total_loss = main_loss + variability_penalty
+    return total_loss
 
 def optimise_model(a_param, raw_b_param, log_sigma_param, raw_k_param, n_steps, lr, model_type, paradigm, empirical_data, weights, n_simulations, v, gaussian_noise_all, tuning_curves_indices_all, sub_num, N, j, ind, reset_after):
     optimiser = torch.optim.Adam([a_param, raw_b_param, log_sigma_param, raw_k_param], lr=lr)
@@ -247,7 +240,7 @@ empirical_grating_data = torch.tensor([-0.6499, -0.0525, -0.0610, 0.0085, -0.023
 #Need noise to be gaussian * 0.03 with a n_simulations * n_trials * v
 
 paradigm = 'face'
-n_simulations = 5
+n_simulations = 4
 v = 200
 N = 8
 sub_num = 18
@@ -270,11 +263,12 @@ gaussian_noise_all = loaded['gaussian_noise']
 tuning_curves_indices_all = loaded['tuning_indices']
 
 
-n_steps = 5
+n_steps = 4
 lr = 0.1
 
 models_to_test = [1, 2, 3]
 
+"""This currently only works if we are doing every model up until"""
 overall_history = []
 for i in models_to_test:
     print("model")

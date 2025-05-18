@@ -5,6 +5,7 @@ import torch
 np.set_printoptions(threshold=np.inf)
 
 def simulate_adaptation(v, X, j, cond1, cond2, a, b, sigma, k, model_type, reset_after, paradigm, N, tuning_curves_indices, sub_num):
+    # print(model_type)
     """
 
     Parameters

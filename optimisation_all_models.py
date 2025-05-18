@@ -232,7 +232,7 @@ empirical_grating_data = torch.tensor([-0.6499, -0.0525, -0.0610, 0.0085, -0.023
 #Need noise to be gaussian * 0.03 with a n_simulations * n_trials * v
 
 paradigm = 'face'
-n_simulations = 5
+n_simulations = 20
 v = 200
 N = 8
 sub_num = 18
@@ -246,7 +246,7 @@ j, ind, reset_after, _ = paradigm_setting(paradigm, cond1, cond2)
 
 gaussian_noise_all = 0.03 * torch.randn((n_simulations, sub_num, n_trials, v))
 tuning_curves_indices_all = torch.randint(0, N, (n_simulations, sub_num, v, N))
-n_steps = 8
+n_steps = 10
 lr = 0.1
 
 models_to_test = [1, 2, 3]
